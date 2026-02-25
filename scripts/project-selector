@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# project-selector - Fuzzy project picker with workspace switching
+#
+# Reads pre-built cache for instant fzf startup.
+# Run project-cache-refresh to rebuild the cache.
+
+set -euo pipefail
+
+CACHE="$HOME/.cache/project-list"
+
+# Fallback: generate cache if missing
+[[ -f "$CACHE" ]] || "$HOME/.config/scripts/project-cache-refresh"
+
+# Query active WezTerm workspaces for highlighting
+active_ws=$(wezterm cli list --format json 2>/dev/null | jq -r '.[].workspace' | paste -sd'|' - || true)
+
+result=$(awk -F'\t' -v active="$active_ws" '
+BEGIN { n = split(active, a, "|"); for (i=1; i<=n; i++) ws[a[i]]=1 }
+{
+  match_name = $1
+  gsub(/ \[projects\]$/, "", match_name)
+  if (match_name in ws)
+    printf "\033[32m%s\033[0m\t%s\n", $1, $2
+  else
+    printf "%s\t%s\n", $1, $2
+}' "$CACHE" | fzf \
+    --ansi \
+    --delimiter=$'\t' \
+    --with-nth=1 \
+    --no-multi \
+    --border=rounded \
+    --no-scrollbar \
+    --header='enter=switch │ alt-v=+nvim │ alt-x=kill' \
+    --header-first \
+    --prompt='workspace> ' \
+    --expect='alt-v,alt-x' \
+    --no-preview \
+) || exit 0
+
+key=$(head -1 <<< "$result")
+selection=$(sed -n '2p' <<< "$result")
+[[ -z "$selection" ]] && exit 0
+
+value=$(printf '%s' "$selection" | cut -f2)
+
+# Handle kill workspace action separately
+if [[ "$key" == "alt-x" ]]; then
+    # Extract display name (field 1), strip ANSI codes and " [projects]" suffix
+    ws_name=$(printf '%s' "$selection" | cut -f1 | sed $'s/\033\[[0-9;]*m//g; s/ \[projects\]$//')
+    printf '\033]1337;SetUserVar=%s=%s\007' kill_workspace "$(printf '%s' "$ws_name" | base64)"
+    sleep 0.2
+    exit 0
+fi
+
+case "$key" in
+    alt-v) value="$value:nvim" ;;
+esac
+
+# Emit user-var escape sequence for WezTerm handler
+printf '\033]1337;SetUserVar=%s=%s\007' switch_workspace "$(printf '%s' "$value" | base64)"
+sleep 0.2

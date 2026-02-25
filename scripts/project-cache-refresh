@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# project-cache-refresh - Rebuild the project list cache
+#
+# Edit the directory paths below to match your project layout.
+
+set -euo pipefail
+
+CACHE="$HOME/.cache/project-list"
+mkdir -p "$(dirname "$CACHE")"
+
+{
+  # Default workspace (always present)
+  printf 'default\texisting:default\n'
+
+  # --- Add your project directories here ---
+  # Each top-level subdirectory becomes a selectable workspace.
+  # Format: display_name<TAB>project:/full/path
+
+  for p in "$HOME/Developer"/*/; do
+    [[ -d "$p" ]] || continue
+    printf '%s\tproject:%s\n' "$(basename "$p")" "${p%/}"
+  done
+
+  # Add more directories with a label suffix:
+  for p in "$HOME/personal"/*/; do
+    [[ -d "$p" ]] || continue
+    printf '%s [personal]\tproject:%s\n' "$(basename "$p")" "${p%/}"
+  done
+
+  for p in "$HOME/work"/*/; do
+    [[ -d "$p" ]] || continue
+    printf '%s [work]\tproject:%s\n' "$(basename "$p")" "${p%/}"
+  done
+} > "$CACHE.tmp" && mv "$CACHE.tmp" "$CACHE"
